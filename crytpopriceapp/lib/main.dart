@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:web3dart/web3dart.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'dart:math';
 
 void main() {
   runApp(CryptoGuessGame());
@@ -28,7 +29,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   String selectedCoin = 'BTC';
-  double currentPrice = 0.0;
+  double combinedPrice = 0.0;
   double userGuess = 0.0;
   bool isVerified = false;
   final TextEditingController _guessController = TextEditingController();
@@ -43,13 +44,41 @@ class _HomePageState extends State<HomePage> {
   // ABI for Chainlink Price Feed
   final String chainlinkABI = '[{"inputs":[],"name":"latestRoundData","outputs":[{"internalType":"uint80","name":"roundId","type":"uint80"},{"internalType":"int256","name":"answer","type":"int256"},{"internalType":"uint256","name":"startedAt","type":"uint256"},{"internalType":"uint256","name":"updatedAt","type":"uint256"},{"internalType":"uint80","name":"answeredInRound","type":"uint80"}],"stateMutability":"view","type":"function"}]';
 
+  // Pyth Network price service URL
+  final String pythUrl = 'https://xc-mainnet.pyth.network/api/latest_price_feeds';
+
+  // Pyth BTC/USD price feed ID
+  final String pythBTCUSDId = 'e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43';
+
   @override
   void initState() {
     super.initState();
-    fetchCurrentPrice();
+    fetchCombinedPrice();
   }
 
-  Future<void> fetchCurrentPrice() async {
+  Future<void> fetchCombinedPrice() async {
+    try {
+      final chainlinkPrice = await fetchChainlinkPrice();
+      final pythPrice = await fetchPythPrice();
+      
+      if (chainlinkPrice != null && pythPrice != null) {
+        // Simple average of the two prices
+        final combinedPrice = (chainlinkPrice + pythPrice) / 2;
+        setState(() {
+          this.combinedPrice = combinedPrice;
+        });
+      } else {
+        throw Exception('Failed to fetch one or both prices');
+      }
+    } catch (e) {
+      print('Error fetching combined price: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to fetch combined price')),
+      );
+    }
+  }
+
+  Future<double?> fetchChainlinkPrice() async {
     try {
       final client = Web3Client(rpcUrl, http.Client());
       final contract = DeployedContract(
@@ -61,15 +90,27 @@ class _HomePageState extends State<HomePage> {
       
       // Chainlink returns price with 8 decimals
       final price = (result[1] as BigInt) / BigInt.from(100000000);
-      
-      setState(() {
-        currentPrice = price.toDouble();
-      });
+      return price.toDouble();
     } catch (e) {
-      print('Error fetching price: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to fetch current price')),
-      );
+      print('Error fetching Chainlink price: $e');
+      return null;
+    }
+  }
+
+  Future<double?> fetchPythPrice() async {
+    try {
+      final response = await http.get(Uri.parse(pythUrl));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final btcFeed = data.firstWhere((feed) => feed['id'] == pythBTCUSDId);
+        final price = btcFeed['price']['price'] / pow(10, btcFeed['price']['expo'].abs());
+        return price;
+      } else {
+        throw Exception('Failed to load Pyth price');
+      }
+    } catch (e) {
+      print('Error fetching Pyth price: $e');
+      return null;
     }
   }
 
@@ -184,7 +225,7 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            Text('Current $selectedCoin Price: \$${currentPrice.toStringAsFixed(2)}'),
+            Text('Combined $selectedCoin Price: \$${combinedPrice.toStringAsFixed(2)}'),
             SizedBox(height: 20),
             TextField(
               controller: _guessController,
@@ -211,7 +252,7 @@ class _HomePageState extends State<HomePage> {
             ),
             SizedBox(height: 20),
             ElevatedButton(
-              onPressed: fetchCurrentPrice,
+              onPressed: fetchCombinedPrice,
               child: Text('Refresh Price'),
             ),
           ],
