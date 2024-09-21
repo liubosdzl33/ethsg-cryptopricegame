@@ -2,28 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:web3dart/web3dart.dart';
-import 'package:url_launcher/url_launcher.dart';
-
-// Simulated Worldcoin SDK
-class WorldcoinSDK {
-  static Future<bool> verifyIdentity(String appId) async {
-    // Simulate opening Worldcoin app or web page for verification
-    const url = 'https://worldcoin.org/verify';
-    if (await canLaunch(url)) {
-      await launch(url);
-      // In a real implementation, we'd wait for a callback or check a status
-      await Future.delayed(Duration(seconds: 5)); // Simulating wait time
-      return true; // Simulating successful verification
-    }
-    return false;
-  }
-}
+import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
-  runApp(CryptoGuessGame());
+  runApp(CryptoPriceGame());
 }
 
-class CryptoGuessGame extends StatelessWidget {
+class CryptoPriceGame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -44,9 +29,10 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   String selectedCoin = 'BTC';
   double currentPrice = 0.0;
-  double userGuess = 0.0;
+  double userPrice = 0.0;
   bool isVerified = false;
   final TextEditingController _guessController = TextEditingController();
+  late WebViewController _webViewController;
 
   // TODO: Replace with actual Ethereum node URL and contract address
   final String rpcUrl = 'https://mainnet.infura.io/v3/YOUR-PROJECT-ID';
@@ -69,26 +55,90 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> verifyWithWorldcoin() async {
-    bool verified = await WorldcoinSDK.verifyIdentity('YOUR_WORLDCOIN_APP_ID');
-    setState(() {
-      isVerified = verified;
-    });
-    if (verified) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Worldcoin verification successful!')),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Worldcoin verification failed. Please try again.')),
-      );
-    }
+  Future<void> verifyWithWorldID() async {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          content: Container(
+            width: 300,
+            height: 400,
+            child: WebView(
+              initialUrl: 'about:blank',
+              javascriptMode: JavascriptMode.unrestricted,
+              onWebViewCreated: (WebViewController controller) {
+                _webViewController = controller;
+                _loadWorldIDHtml();
+              },
+              javascriptChannels: {
+                JavascriptChannel(
+                  name: 'WorldIDFlutter',
+                  onMessageReceived: (JavascriptMessage message) {
+                    final data = json.decode(message.message);
+                    if (data['type'] == 'verification_success') {
+                      setState(() {
+                        isVerified = true;
+                      });
+                      Navigator.of(context).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('WorldID verification successful!')),
+                      );
+                    }
+                  },
+                ),
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _loadWorldIDHtml() {
+    String html = '''
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <script src="https://cdn.worldcoin.org/js/worldcoin.js"></script>
+      </head>
+      <body>
+        <div id="world-id-container"></div>
+        <script>
+          worldcoin.init('world-id-container', {
+            action_id: 'your_action_id',
+            signal: 'your_signal',
+            app_name: 'Your App Name',
+            enable_telemetry: true,
+            onSuccess: (result) => {
+              WorldIDFlutter.postMessage(JSON.stringify({
+                type: 'verification_success',
+                result: result
+              }));
+            },
+            onError: (error) => {
+              console.error(error);
+              WorldIDFlutter.postMessage(JSON.stringify({
+                type: 'verification_error',
+                error: error.toString()
+              }));
+            }
+          });
+        </script>
+      </body>
+      </html>
+    ''';
+
+    _webViewController.loadUrl(Uri.dataFromString(
+      html,
+      mimeType: 'text/html',
+      encoding: Encoding.getByName('utf-8')
+    ).toString());
   }
 
   Future<void> submitGuess() async {
     if (!isVerified) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please verify with Worldcoin before submitting a guess.')),
+        SnackBar(content: Text('Please verify with WorldID before submitting a guess.')),
       );
       return;
     }
@@ -142,8 +192,8 @@ class _HomePageState extends State<HomePage> {
             ),
             SizedBox(height: 20),
             ElevatedButton(
-              onPressed: verifyWithWorldcoin,
-              child: Text('Verify with Worldcoin'),
+              onPressed: verifyWithWorldID,
+              child: Text('Verify with WorldID'),
               style: ElevatedButton.styleFrom(
                 primary: isVerified ? Colors.green : Colors.blue,
               ),

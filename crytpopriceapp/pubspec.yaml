@@ -12,6 +12,7 @@ dependencies:
   http: ^1.2.2
   url_launcher: ^6.3.0
   web3dart: ^2.7.3
+  webview_flutter: ^4.9.0
 
 dev_dependencies:
   flutter_test:
