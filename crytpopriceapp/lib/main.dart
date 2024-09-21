@@ -5,10 +5,10 @@ import 'package:web3dart/web3dart.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
-  runApp(CryptoPriceGame());
+  runApp(CryptoGuessGame());
 }
 
-class CryptoPriceGame extends StatelessWidget {
+class CryptoGuessGame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -29,14 +29,19 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   String selectedCoin = 'BTC';
   double currentPrice = 0.0;
-  double userPrice = 0.0;
+  double userGuess = 0.0;
   bool isVerified = false;
   final TextEditingController _guessController = TextEditingController();
   late WebViewController _webViewController;
 
-  // TODO: Replace with actual Ethereum node URL and contract address
+  // Ethereum node URL (replace with your own)
   final String rpcUrl = 'https://mainnet.infura.io/v3/YOUR-PROJECT-ID';
-  final String contractAddress = '0xYourContractAddress';
+  
+  // Chainlink BTC/USD Price Feed address on Ethereum mainnet
+  final String chainlinkBTCUSDAddress = '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c';
+
+  // ABI for Chainlink Price Feed
+  final String chainlinkABI = '[{"inputs":[],"name":"latestRoundData","outputs":[{"internalType":"uint80","name":"roundId","type":"uint80"},{"internalType":"int256","name":"answer","type":"int256"},{"internalType":"uint256","name":"startedAt","type":"uint256"},{"internalType":"uint256","name":"updatedAt","type":"uint256"},{"internalType":"uint80","name":"answeredInRound","type":"uint80"}],"stateMutability":"view","type":"function"}]';
 
   @override
   void initState() {
@@ -45,13 +50,26 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> fetchCurrentPrice() async {
-    final response = await http.get(Uri.parse(
-        'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd'));
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+    try {
+      final client = Web3Client(rpcUrl, http.Client());
+      final contract = DeployedContract(
+        ContractAbi.fromJson(chainlinkABI, 'ChainlinkPriceFeed'),
+        EthereumAddress.fromHex(chainlinkBTCUSDAddress),
+      );
+      final function = contract.function('latestRoundData');
+      final result = await client.call(contract: contract, function: function, params: []);
+      
+      // Chainlink returns price with 8 decimals
+      final price = (result[1] as BigInt) / BigInt.from(100000000);
+      
       setState(() {
-        currentPrice = data['bitcoin']['usd'].toDouble();
+        currentPrice = price.toDouble();
       });
+    } catch (e) {
+      print('Error fetching price: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to fetch current price')),
+      );
     }
   }
 
@@ -143,24 +161,12 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    // TODO: Implement actual blockchain submission
+    // TODO: Implement actual guess submission to your smart contract
     print('Submitting guess: $userGuess');
     
-    // Example of how to interact with Ethereum contract (not fully implemented)
-    final client = Web3Client(rpcUrl, http.Client());
-    final credentials = EthPrivateKey.fromHex('YOUR_PRIVATE_KEY');
-    final contract = DeployedContract(ContractAbi.fromJson('YOUR_ABI', 'GuessGame'), EthereumAddress.fromHex(contractAddress));
-    final function = contract.function('submitGuess');
-    
-    await client.sendTransaction(
-      credentials,
-      Transaction.callContract(
-        contract: contract,
-        function: function,
-        parameters: [BigInt.from(userGuess * 100)],  // Assuming the contract expects price in cents
-      ),
-      chainId: 1,
-    );
+    // This is where you would interact with your game's smart contract
+    // to submit the user's guess. The implementation will depend on your
+    // specific smart contract design.
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Guess submitted successfully!')),
@@ -178,7 +184,7 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            Text('Current $selectedCoin Price: \$$currentPrice'),
+            Text('Current $selectedCoin Price: \$${currentPrice.toStringAsFixed(2)}'),
             SizedBox(height: 20),
             TextField(
               controller: _guessController,
@@ -202,6 +208,11 @@ class _HomePageState extends State<HomePage> {
             ElevatedButton(
               onPressed: isVerified ? submitGuess : null,
               child: Text('Submit Guess'),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: fetchCurrentPrice,
+              child: Text('Refresh Price'),
             ),
           ],
         ),
