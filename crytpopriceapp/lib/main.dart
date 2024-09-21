@@ -2,6 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:web3dart/web3dart.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+// Simulated Worldcoin SDK
+class WorldcoinSDK {
+  static Future<bool> verifyIdentity(String appId) async {
+    // Simulate opening Worldcoin app or web page for verification
+    const url = 'https://worldcoin.org/verify';
+    if (await canLaunch(url)) {
+      await launch(url);
+      // In a real implementation, we'd wait for a callback or check a status
+      await Future.delayed(Duration(seconds: 5)); // Simulating wait time
+      return true; // Simulating successful verification
+    }
+    return false;
+  }
+}
 
 void main() {
   runApp(CryptoGuessGame());
@@ -29,6 +45,7 @@ class _HomePageState extends State<HomePage> {
   String selectedCoin = 'BTC';
   double currentPrice = 0.0;
   double userGuess = 0.0;
+  bool isVerified = false;
   final TextEditingController _guessController = TextEditingController();
 
   // TODO: Replace with actual Ethereum node URL and contract address
@@ -52,7 +69,30 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> verifyWithWorldcoin() async {
+    bool verified = await WorldcoinSDK.verifyIdentity('YOUR_WORLDCOIN_APP_ID');
+    setState(() {
+      isVerified = verified;
+    });
+    if (verified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Worldcoin verification successful!')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Worldcoin verification failed. Please try again.')),
+      );
+    }
+  }
+
   Future<void> submitGuess() async {
+    if (!isVerified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please verify with Worldcoin before submitting a guess.')),
+      );
+      return;
+    }
+
     // TODO: Implement actual blockchain submission
     print('Submitting guess: $userGuess');
     
@@ -70,6 +110,10 @@ class _HomePageState extends State<HomePage> {
         parameters: [BigInt.from(userGuess * 100)],  // Assuming the contract expects price in cents
       ),
       chainId: 1,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Guess submitted successfully!')),
     );
   }
 
@@ -98,7 +142,15 @@ class _HomePageState extends State<HomePage> {
             ),
             SizedBox(height: 20),
             ElevatedButton(
-              onPressed: submitGuess,
+              onPressed: verifyWithWorldcoin,
+              child: Text('Verify with Worldcoin'),
+              style: ElevatedButton.styleFrom(
+                primary: isVerified ? Colors.green : Colors.blue,
+              ),
+            ),
+            SizedBox(height: 10),
+            ElevatedButton(
+              onPressed: isVerified ? submitGuess : null,
               child: Text('Submit Guess'),
             ),
           ],
